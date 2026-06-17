@@ -18,7 +18,7 @@ void send_command_list(const uint8_t* cmds, size_t size)
     );
 }
 
-void ssd1327_init(uint8_t addr, uint32_t i2c_master_freq_hz, i2c_master_bus_handle_t bus_handle)
+void ssd1327_init(const uint8_t addr, const uint32_t i2c_master_freq_hz, i2c_master_bus_handle_t bus_handle)
 {
     i2c_device_config_t dev_config = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -56,11 +56,11 @@ void ssd1327_init(uint8_t addr, uint32_t i2c_master_freq_hz, i2c_master_bus_hand
     send_command_list(init_cmds, sizeof(init_cmds));
 }
 
-void ssd1327_set_pixel(uint8_t x, uint8_t y, uint8_t color)
+void ssd1327_set_pixel(const uint8_t x, const uint8_t y, const uint8_t color)
 {
-    if (x > SSD1327_WIDTH || y > SSD1327_HEIGHT)
+    if (x >= SSD1327_WIDTH || y >= SSD1327_HEIGHT)
     {
-        ESP_LOGE("SSD1327", "Pixel coordinates not in within the display!");
+        ESP_LOGE("SSD1327", "Pixel coordinates not within the display!");
         return;
     }
 
@@ -85,7 +85,7 @@ void ssd1327_update()
 {
     const uint8_t cmds[] = {
         CMD, 0x15, 0x00, SSD1327_WIDTH / 2 - 1, // Set Column Address
-        CMD, 0x75, 0x00, SSD1327_HEIGHT - 1,    // Set Row Address ! TBC
+        CMD, 0x75, 0x00, SSD1327_HEIGHT - 1,    // Set Row Address
     };
 
     // reset row and col pointer in ram
