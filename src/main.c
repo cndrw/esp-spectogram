@@ -32,9 +32,14 @@
 #define I2C_MASTER_NUM              I2C_NUM_0                   /*!< I2C port number for master dev */
 #define I2C_MASTER_FREQ_HZ          400000
 
+#define US_TO_MS(x) ((x) / 1000.0)
+#define STATUS_LED 2
+
 static i2c_master_bus_handle_t bus_handle;
 static i2s_chan_handle_t rx_chan;
 static int32_t i2s_buffer[DMA_BLOCK_SIZE];
+
+
 
 void setup_i2c()
 {
@@ -88,11 +93,25 @@ void setup_i2s()
     ESP_ERROR_CHECK(
         i2s_channel_enable(rx_chan)
     );
+}
 
+void draw_line(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
+{
+    int16_t y_diff = y2 - y1;
+    int8_t sign = y_diff < 0 ? -1 : 1;
+
+    for (int i = 0; i < abs(y_diff) / 2 + 1; i++)
+    {
+        ssd1327_set_pixel(x1, y1 + sign * i, 0xF);
+        ssd1327_set_pixel(x2, y2 - sign * i, 0xF);
+    }
 }
 
 void app_main(void)
 {
+    gpio_set_direction(STATUS_LED, GPIO_MODE_OUTPUT);
+    gpio_set_level(STATUS_LED, 0);
+
     setup_i2s();
 
     setup_i2c();
@@ -103,8 +122,15 @@ void app_main(void)
 
     uint8_t x_pos = 0;
 
+
+    int64_t start_time = 0;
+    int64_t buffer_full_time = 0;
+    int64_t calc_screen_time = 0;
+    int64_t screen_update_tiem = 0;
+
     while (1)
     {
+        start_time = esp_timer_get_time();
         esp_err_t res = i2s_channel_read(
             rx_chan,
             i2s_buffer,
@@ -112,6 +138,10 @@ void app_main(void)
             &bytes_read,
             portMAX_DELAY
         );
+
+        gpio_set_level(STATUS_LED, 0);
+
+        buffer_full_time = esp_timer_get_time();
 
         if (res == ESP_OK)
         {
@@ -127,6 +157,10 @@ void app_main(void)
             }
 
             int64_t sum = 0;
+            static const float bound = INT16_MAX / 8.0f;
+            uint8_t prev_x = 0;
+            uint8_t prev_y = 0;
+
             for (int i = 0; i < num_samples; i++)
             {
                 sum += i2s_buffer[i] >> 16;
@@ -134,16 +168,24 @@ void app_main(void)
                 if (i % 32 == 0 && i != 0)
                 {
                     float average = sum / 32.0;
-                    float mapped_y = ((SSD1327_HEIGHT - 1) / 2.0) * (1 + average / 1500.0);
+                    float mapped_y = ((SSD1327_HEIGHT - 1) / 2.0) * (1 + average / bound);
                     uint8_t clamped_y = floor(fmin(fmax(mapped_y, 0), SSD1327_HEIGHT-1));
 
-                    ssd1327_set_pixel(x_pos, clamped_y, 0xF);
+                    draw_line(prev_x, x_pos == 0 ? clamped_y : prev_y, x_pos, clamped_y);
+                    
+                    prev_x = x_pos;
+                    prev_y = clamped_y;
                     x_pos++;
                     sum = 0;
                 }
             }
+            calc_screen_time = esp_timer_get_time();
 
             ssd1327_update();
+            screen_update_tiem = esp_timer_get_time();
         }
+
+        printf("i2s_read %f\t calc: %f\t screen_update: %f\t total: %f\n",
+            US_TO_MS(buffer_full_time - start_time), US_TO_MS(calc_screen_time - buffer_full_time), US_TO_MS(screen_update_tiem - calc_screen_time), US_TO_MS(screen_update_tiem - start_time));
     }
 }
