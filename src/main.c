@@ -19,7 +19,8 @@
 
 
 #define SAMPLE_RATE     16000
-#define DMA_BLOCK_SIZE  4096
+#define DMA_BLOCK_SIZE  1024 
+#define DMA_DESC_NUM    5
 
 #define I2S_BCLK_PIN    GPIO_NUM_26
 #define I2S_WS_PIN      GPIO_NUM_25
@@ -37,9 +38,15 @@
 
 static i2c_master_bus_handle_t bus_handle;
 static i2s_chan_handle_t rx_chan;
-static int32_t i2s_buffer[DMA_BLOCK_SIZE];
+static int32_t i2s_buffer[DMA_BLOCK_SIZE * (DMA_DESC_NUM - 1)];
 
 
+static volatile int8_t overflow_status = 0;
+static IRAM_ATTR bool i2s_rx_queue_overflow_callback(i2s_chan_handle_t handle, i2s_event_data_t *event, void *user_ctx)
+{
+    overflow_status = !overflow_status;
+    return false;
+}
 
 void setup_i2c()
 {
@@ -60,6 +67,8 @@ void setup_i2c()
 void setup_i2s()
 {
     static i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+    chan_cfg.dma_frame_num = DMA_BLOCK_SIZE;
+    chan_cfg.dma_desc_num = DMA_DESC_NUM;
 
     ESP_ERROR_CHECK(
         i2s_new_channel(&chan_cfg, NULL, &rx_chan)
@@ -83,12 +92,26 @@ void setup_i2s()
     };
 
     std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
-    chan_cfg.dma_frame_num = DMA_BLOCK_SIZE;
-    chan_cfg.dma_desc_num = 2;
 
     ESP_ERROR_CHECK(
         i2s_channel_init_std_mode(rx_chan, &std_cfg)
     );
+
+    i2s_event_callbacks_t cbs = {
+        .on_recv = NULL,
+        .on_recv_q_ovf = i2s_rx_queue_overflow_callback,
+        .on_sent = NULL,
+        .on_send_q_ovf = NULL,
+    };
+
+    if (i2s_channel_register_event_callback(rx_chan, &cbs, NULL) != ESP_OK)
+    {
+        ESP_LOGE("main", "overflow callback not working\n");
+    }
+
+    i2s_chan_info_t info;
+    i2s_channel_get_info(rx_chan, &info);
+    printf("total dma buf size %ld\n", info.total_dma_buf_size);
 
     ESP_ERROR_CHECK(
         i2s_channel_enable(rx_chan)
@@ -106,6 +129,7 @@ void draw_line(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
         ssd1327_set_pixel(x2, y2 - sign * i, 0xF);
     }
 }
+
 
 void app_main(void)
 {
@@ -139,13 +163,14 @@ void app_main(void)
             portMAX_DELAY
         );
 
-        gpio_set_level(STATUS_LED, 0);
+        gpio_set_level(STATUS_LED, overflow_status);
 
         buffer_full_time = esp_timer_get_time();
 
         if (res == ESP_OK)
         {
             int num_samples = bytes_read / sizeof(int32_t);
+            printf("read samples: %d\t", num_samples);
             x_pos = 0;
 
             for (int i = 0; i < SSD1327_HEIGHT; i++)
@@ -160,14 +185,15 @@ void app_main(void)
             static const float bound = INT16_MAX / 8.0f;
             uint8_t prev_x = 0;
             uint8_t prev_y = 0;
+            uint8_t sample_per_col = num_samples / SSD1327_WIDTH;
 
             for (int i = 0; i < num_samples; i++)
             {
                 sum += i2s_buffer[i] >> 16;
 
-                if (i % 32 == 0 && i != 0)
+                if (i % sample_per_col == 0 && i != 0)
                 {
-                    float average = sum / 32.0;
+                    float average = sum / (float)sample_per_col;
                     float mapped_y = ((SSD1327_HEIGHT - 1) / 2.0) * (1 + average / bound);
                     uint8_t clamped_y = floor(fmin(fmax(mapped_y, 0), SSD1327_HEIGHT-1));
 
@@ -189,3 +215,11 @@ void app_main(void)
             US_TO_MS(buffer_full_time - start_time), US_TO_MS(calc_screen_time - buffer_full_time), US_TO_MS(screen_update_tiem - calc_screen_time), US_TO_MS(screen_update_tiem - start_time));
     }
 }
+
+
+// processes_t
+// each step is defined as a process (e.g. hann-window, fft, stft, ...)
+// each process gets the buffer and size from the previous process
+// when a processes output is selected as a view
+//    -> some kind of extra processing needed to transform these datas to the screen (e.g. like with raw wave here)
+//    -> maybe also part of the process_t inferace? -> extra field void(show*)() ?
