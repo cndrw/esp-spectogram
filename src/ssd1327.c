@@ -76,6 +76,11 @@ void ssd1327_set_pixel(const uint8_t x, const uint8_t y, const uint8_t color)
     }
 }
 
+void ssd1327_empty_screen()
+{
+    memset(screen, 0, SSD1327_SCREEN_SIZE_BYTES);
+}
+
 uint8_t *ssd1327_get_screen()
 {
     return screen;

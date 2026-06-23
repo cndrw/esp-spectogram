@@ -16,6 +16,7 @@
 #include "esp_event.h"
 
 #include "ssd1327.h"
+#include "pipeline.h"
 
 
 #define SAMPLE_RATE     16000
@@ -39,6 +40,15 @@
 static i2c_master_bus_handle_t bus_handle;
 static i2s_chan_handle_t rx_chan;
 static int32_t i2s_buffer[DMA_BLOCK_SIZE * (DMA_DESC_NUM - 1)];
+
+
+#define NUM_PIPELINES 1
+static pipeline_t pipelines[] = {
+    { .execute = raw_audio_pipeline },
+    { .execute = fft_pipeline },
+};
+
+static uint8_t cur_pipeline = 1;
 
 
 static volatile int8_t overflow_status = 0;
@@ -118,18 +128,6 @@ void setup_i2s()
     );
 }
 
-void draw_line(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
-{
-    int16_t y_diff = y2 - y1;
-    int8_t sign = y_diff < 0 ? -1 : 1;
-
-    for (int i = 0; i < abs(y_diff) / 2 + 1; i++)
-    {
-        ssd1327_set_pixel(x1, y1 + sign * i, 0xF);
-        ssd1327_set_pixel(x2, y2 - sign * i, 0xF);
-    }
-}
-
 
 void app_main(void)
 {
@@ -141,11 +139,10 @@ void app_main(void)
     setup_i2c();
     ssd1327_init(SSD1327_ADDR, I2C_MASTER_FREQ_HZ, bus_handle);
 
+    init_dsps_fft2r();
+
 
     size_t bytes_read = 0;
-
-    uint8_t x_pos = 0;
-
 
     int64_t start_time = 0;
     int64_t buffer_full_time = 0;
@@ -170,41 +167,11 @@ void app_main(void)
         if (res == ESP_OK)
         {
             int num_samples = bytes_read / sizeof(int32_t);
-            printf("read samples: %d\t", num_samples);
-            x_pos = 0;
 
-            for (int i = 0; i < SSD1327_HEIGHT; i++)
-            {
-                for (int j = 0; j < SSD1327_WIDTH; j++)
-                {
-                    ssd1327_set_pixel(j, i, 0x0);
-                }
-            }
+            ssd1327_empty_screen();
 
-            int64_t sum = 0;
-            static const float bound = INT16_MAX / 8.0f;
-            uint8_t prev_x = 0;
-            uint8_t prev_y = 0;
-            uint8_t sample_per_col = num_samples / SSD1327_WIDTH;
+            pipelines[cur_pipeline].execute(i2s_buffer, num_samples);
 
-            for (int i = 0; i < num_samples; i++)
-            {
-                sum += i2s_buffer[i] >> 16;
-
-                if (i % sample_per_col == 0 && i != 0)
-                {
-                    float average = sum / (float)sample_per_col;
-                    float mapped_y = ((SSD1327_HEIGHT - 1) / 2.0) * (1 + average / bound);
-                    uint8_t clamped_y = floor(fmin(fmax(mapped_y, 0), SSD1327_HEIGHT-1));
-
-                    draw_line(prev_x, x_pos == 0 ? clamped_y : prev_y, x_pos, clamped_y);
-                    
-                    prev_x = x_pos;
-                    prev_y = clamped_y;
-                    x_pos++;
-                    sum = 0;
-                }
-            }
             calc_screen_time = esp_timer_get_time();
 
             ssd1327_update();
@@ -215,11 +182,3 @@ void app_main(void)
             US_TO_MS(buffer_full_time - start_time), US_TO_MS(calc_screen_time - buffer_full_time), US_TO_MS(screen_update_tiem - calc_screen_time), US_TO_MS(screen_update_tiem - start_time));
     }
 }
-
-
-// processes_t
-// each step is defined as a process (e.g. hann-window, fft, stft, ...)
-// each process gets the buffer and size from the previous process
-// when a processes output is selected as a view
-//    -> some kind of extra processing needed to transform these datas to the screen (e.g. like with raw wave here)
-//    -> maybe also part of the process_t inferace? -> extra field void(show*)() ?

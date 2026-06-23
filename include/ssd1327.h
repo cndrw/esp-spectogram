@@ -14,6 +14,7 @@ void ssd1327_init(const uint8_t addr, const uint32_t i2c_master_freq_hz, i2c_mas
 /// @brief Set pixel on the SSD1327
 /// NOTE: (0, 0) is located at the top left on the screen
 void ssd1327_set_pixel(const uint8_t x, const uint8_t y, const uint8_t color);
+void ssd1327_empty_screen();
 uint8_t* ssd1327_get_screen();
 void ssd1327_update();
 
