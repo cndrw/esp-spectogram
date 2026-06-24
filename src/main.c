@@ -37,16 +37,18 @@
 #define US_TO_MS(x) ((x) / 1000.0)
 #define STATUS_LED 2
 
+#define BTN_PIN GPIO_NUM_13
+
 static i2c_master_bus_handle_t bus_handle;
 static i2s_chan_handle_t rx_chan;
 static int32_t i2s_buffer[DMA_BLOCK_SIZE * (DMA_DESC_NUM - 1)];
 
 
-#define NUM_PIPELINES 1
 static pipeline_t pipelines[] = {
     { .execute = raw_audio_pipeline },
     { .execute = fft_pipeline },
 };
+#define NUM_PIPELINES (sizeof(pipelines) / sizeof(pipeline_t))
 
 static uint8_t cur_pipeline = 1;
 
@@ -141,6 +143,8 @@ void app_main(void)
 
     init_dsps_fft2r();
 
+    gpio_set_direction(BTN_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BTN_PIN, GPIO_PULLUP_ONLY);
 
     size_t bytes_read = 0;
 
@@ -161,6 +165,10 @@ void app_main(void)
         );
 
         gpio_set_level(STATUS_LED, overflow_status);
+        if (gpio_get_level(BTN_PIN) == 0)
+        {
+            cur_pipeline = (cur_pipeline + 1) % NUM_PIPELINES;
+        }
 
         buffer_full_time = esp_timer_get_time();
 
@@ -182,3 +190,4 @@ void app_main(void)
             US_TO_MS(buffer_full_time - start_time), US_TO_MS(calc_screen_time - buffer_full_time), US_TO_MS(screen_update_tiem - calc_screen_time), US_TO_MS(screen_update_tiem - start_time));
     }
 }
+

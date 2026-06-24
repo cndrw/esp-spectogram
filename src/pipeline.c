@@ -112,17 +112,24 @@ void fft_pipeline(int32_t *buffer, size_t size)
 
     int64_t sum = 0;
     uint8_t x_pos = 0;
-    const uint8_t sample_per_col =  N / 2 / SSD1327_WIDTH;
-    static const float bound = 200.0;
+    const uint8_t sample_per_col =  N / 4 / SSD1327_WIDTH;
+    static const float bound = 3000.0;
 
-    for (int i = 0 ; i < N / 2 ; i++)
+    // really poor way of removing the dc offset
+    for (int i = 0; i < sample_per_col; i++)
+    {
+        y_cf[i * 2]     = 0;
+        y_cf[i * 2 + 1] = 0;
+    }
+
+    for (int i = 0 ; i < N / 4 ; i++)
     {
         // power spectrum
-        sum += (y1_cf[i * 2 + 0] * y1_cf[i * 2 + 0] + y1_cf[i * 2 + 1] * y1_cf[i * 2 + 1]) / (N * N);
+        sum += y1_cf[i * 2 + 0] * y1_cf[i * 2 + 0] + y1_cf[i * 2 + 1] * y1_cf[i * 2 + 1];
 
         if (i % sample_per_col == 0 && i != 0)
         {
-            float average = sum / (float)sample_per_col;
+            float average = sum / (N * N) / (float)sample_per_col;
             uint8_t mapped_y = -(fmin(fmax(average / bound, 0), 1) - 1) * (SSD1327_HEIGHT-1);
 
             draw_column(x_pos, mapped_y);
