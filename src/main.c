@@ -130,28 +130,15 @@ void setup_i2s()
     );
 }
 
-
-void app_main(void)
+void main_task(void* pvParameters)
 {
-    gpio_set_direction(STATUS_LED, GPIO_MODE_OUTPUT);
-    gpio_set_level(STATUS_LED, 0);
-
-    setup_i2s();
-
-    setup_i2c();
-    ssd1327_init(SSD1327_ADDR, I2C_MASTER_FREQ_HZ, bus_handle);
-
-    init_dsps_fft2r();
-
-    gpio_set_direction(BTN_PIN, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(BTN_PIN, GPIO_PULLUP_ONLY);
-
     size_t bytes_read = 0;
 
     int64_t start_time = 0;
     int64_t buffer_full_time = 0;
     int64_t calc_screen_time = 0;
     int64_t screen_update_tiem = 0;
+
 
     while (1)
     {
@@ -165,10 +152,6 @@ void app_main(void)
         );
 
         gpio_set_level(STATUS_LED, overflow_status);
-        if (gpio_get_level(BTN_PIN) == 0)
-        {
-            cur_pipeline = (cur_pipeline + 1) % NUM_PIPELINES;
-        }
 
         buffer_full_time = esp_timer_get_time();
 
@@ -186,8 +169,48 @@ void app_main(void)
             screen_update_tiem = esp_timer_get_time();
         }
 
+        taskYIELD();
+
         printf("i2s_read %f\t calc: %f\t screen_update: %f\t total: %f\n",
             US_TO_MS(buffer_full_time - start_time), US_TO_MS(calc_screen_time - buffer_full_time), US_TO_MS(screen_update_tiem - calc_screen_time), US_TO_MS(screen_update_tiem - start_time));
     }
+}
+
+void input_task(void* pvParameters)
+{
+    uint8_t last_state = 1;
+
+    while (1)
+    {
+        uint8_t cur_state = gpio_get_level(BTN_PIN);
+        if (cur_state == 0 && last_state == 1)
+        {
+            cur_pipeline = (cur_pipeline + 1) % NUM_PIPELINES;
+        }
+
+        last_state = cur_state;
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+
+void app_main(void)
+{
+    gpio_set_direction(STATUS_LED, GPIO_MODE_OUTPUT);
+    gpio_set_level(STATUS_LED, 0);
+
+    setup_i2s();
+
+    setup_i2c();
+    ssd1327_init(SSD1327_ADDR, I2C_MASTER_FREQ_HZ, bus_handle);
+
+    init_dsps_fft2r();
+
+    gpio_set_direction(BTN_PIN, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BTN_PIN, GPIO_PULLUP_ONLY);
+
+    xTaskCreate(main_task, "main_task", 2048, NULL, 1, NULL);
+    xTaskCreate(input_task, "input_task", 2048, NULL, 2, NULL);
 }
 
