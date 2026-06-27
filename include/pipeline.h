@@ -12,4 +12,6 @@ void raw_audio_pipeline(int32_t* buffer, size_t size);
 void init_dsps_fft2r();
 void fft_pipeline(int32_t* buffer, size_t size);
 
+void spectogram_pipeline(int32_t* buffer, size_t size);
+
 #endif

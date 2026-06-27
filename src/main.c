@@ -47,10 +47,11 @@ static int32_t i2s_buffer[DMA_BLOCK_SIZE * (DMA_DESC_NUM - 1)];
 static pipeline_t pipelines[] = {
     { .execute = raw_audio_pipeline },
     { .execute = fft_pipeline },
+    { .execute = spectogram_pipeline },
 };
 #define NUM_PIPELINES (sizeof(pipelines) / sizeof(pipeline_t))
 
-static uint8_t cur_pipeline = 1;
+static uint8_t cur_pipeline = 2;
 
 
 static volatile int8_t overflow_status = 0;
@@ -159,7 +160,8 @@ void main_task(void* pvParameters)
         {
             int num_samples = bytes_read / sizeof(int32_t);
 
-            ssd1327_empty_screen();
+            if (cur_pipeline != 2)
+                ssd1327_empty_screen();
 
             pipelines[cur_pipeline].execute(i2s_buffer, num_samples);
 

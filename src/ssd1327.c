@@ -60,7 +60,7 @@ void ssd1327_set_pixel(const uint8_t x, const uint8_t y, const uint8_t color)
 {
     if (x >= SSD1327_WIDTH || y >= SSD1327_HEIGHT)
     {
-        ESP_LOGE("SSD1327", "Pixel coordinates not within the display!");
+        ESP_LOGE("SSD1327", "Pixel coordinates not within the display! (%d, %d)", x, y);
         return;
     }
 
@@ -79,6 +79,15 @@ void ssd1327_set_pixel(const uint8_t x, const uint8_t y, const uint8_t color)
 void ssd1327_empty_screen()
 {
     memset(screen, 0, SSD1327_SCREEN_SIZE_BYTES);
+}
+
+void ssd1327_scroll_one_left()
+{
+    for (int i = 0; i < SSD1327_SCREEN_SIZE_BYTES; i++)
+    {
+        screen[i] <<= 4;
+        screen[i] |= (screen[i + 1] & 0xF0) >> 4;
+    }
 }
 
 uint8_t *ssd1327_get_screen()

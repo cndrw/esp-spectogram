@@ -42,10 +42,8 @@ void init_dsps_fft2r()
     dsps_wind_hann_f32(wind, N);
 }
 
-void fft_pipeline(int32_t *buffer, size_t size)
+void compute_fft(int32_t* buffer)
 {
-    adjust_buffer(buffer, size);
-
     memset(y_cf, 0, sizeof(y_cf));
 
     for (int i = 0 ; i < N ; i++)
@@ -59,6 +57,13 @@ void fft_pipeline(int32_t *buffer, size_t size)
     dsps_bit_rev_fc32(y_cf, N);
     // Convert one complex vector to two complex vectors
     dsps_cplx2reC_fc32(y_cf, N);
+}
+
+void fft_pipeline(int32_t *buffer, size_t size)
+{
+    adjust_buffer(buffer, size);
+
+    compute_fft(buffer);
 
     int64_t sum = 0;
     uint8_t x_pos = 0;
@@ -83,6 +88,36 @@ void fft_pipeline(int32_t *buffer, size_t size)
 
             draw_column(x_pos, mapped_y);
             x_pos++;
+            sum = 0;
+        }
+    }
+}
+
+void spectogram_pipeline(int32_t* buffer, size_t size)
+{
+    adjust_buffer(buffer, size);
+
+    compute_fft(buffer);
+
+    ssd1327_scroll_one_left();
+
+    const uint8_t sample_per_pixel = N / 2 / SSD1327_HEIGHT;
+    static const float bound = 200.0;
+
+    int64_t sum = 0;
+    uint8_t y_pos = SSD1327_HEIGHT-1;
+
+    for (int i = 0; i < N / 2; i++)
+    {
+        sum += dsps_sqrtf_f32(y1_cf[i * 2 + 0] * y1_cf[i * 2 + 0] + y1_cf[i * 2 + 1] * y1_cf[i * 2 + 1]);
+        if (i % sample_per_pixel == 0 && i != 0)
+        {
+            float average = (2 * sum) / N / (float)sample_per_pixel; 
+
+            float value = clamp01(average / bound) * 0xF;
+
+            ssd1327_set_pixel(SSD1327_WIDTH-1, y_pos, (uint8_t)value);
+            y_pos--;
             sum = 0;
         }
     }
